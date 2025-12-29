@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "build": "webpack",
+    "deploy": "gh-pages -d dist",
     "dev": "npx http-server dist -o -p 25565 -c-1",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
