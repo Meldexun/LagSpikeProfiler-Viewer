@@ -1,0 +1,23 @@
+{
+  "name": "lagspikeprofiler",
+  "version": "1.0.0",
+  "description": "",
+  "private": true,
+  "scripts": {
+    "build": "webpack",
+    "dev": "npx http-server dist -o -p 25565 -c-1",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Meldexun",
+  "license": "ISC",
+  "dependencies": {
+    "buffer": "^6.0.3",
+    "chart.js": "^4.5.1",
+    "seek-bzip": "^2.0.0"
+  },
+  "devDependencies": {
+    "copy-webpack-plugin": "^13.0.1",
+    "webpack": "^5.104.1",
+    "webpack-cli": "^6.0.1"
+  }
+}
