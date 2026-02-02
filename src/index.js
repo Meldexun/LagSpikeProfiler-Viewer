@@ -28,110 +28,125 @@ async function load(files) {
 	document.getElementById("main").replaceChildren(createElement("span", null, loading => loading.innerHTML = "Loading..."));
 
 	// Load profiler data from file
-	const profilerData = await files.item(0).arrayBuffer()
-		.then(response => new Uint8Array(response))
-		.then(buffer => new BzipDataReader(buffer))
-		.then(dataReader => {
-			function readProfilerResultEntry(dataReader, parent = null) {
-				const name = dataReader.readUTF();
-				const time = dataReader.readLong();
-				const result = {
-					name: name,
-					time: time,
-					self_time: time,
-					parent: parent,
-					children: []
-				};
+	let profilerData;
+	let mergedProfilerData;
+	let aggregatedProfilerData;
+	try {
+		profilerData = await files.item(0).arrayBuffer()
+			.then(response => new Uint8Array(response))
+			.then(buffer => new BzipDataReader(buffer))
+			.then(dataReader => {
+				function readProfilerResultEntry(dataReader, parent = null) {
+					const name = dataReader.readUTF();
+					const time = dataReader.readLong();
+					const result = {
+						name: name,
+						time: time,
+						self_time: time,
+						parent: parent,
+						children: []
+					};
 
-				const children = dataReader.readInt();
-				for (let i = 0; i < children; i++) {
-					result.children[i] = readProfilerResultEntry(dataReader, result);
-					result.self_time -= result.children[i].time;
+					const children = dataReader.readInt();
+					for (let i = 0; i < children; i++) {
+						result.children[i] = readProfilerResultEntry(dataReader, result);
+						result.self_time -= result.children[i].time;
+					}
+
+					return result;
 				}
 
-				return result;
-			}
-
-			try {
-				return Array.from({ length: dataReader.readInt() }, _ => readProfilerResultEntry(dataReader));
-			} finally {
-				dataReader.close();
-			}
-		});
-	const mergedProfilerData = profilerData.map(entry => merge(entry));
-	const aggregatedProfilerData = mergedProfilerData.reduce((mergedEntry, entry) => merge(entry, mergedEntry), null);
+				try {
+					return Array.from({ length: dataReader.readInt() }, _ => readProfilerResultEntry(dataReader));
+				} finally {
+					dataReader.close();
+				}
+			});
+		mergedProfilerData = profilerData.map(entry => merge(entry));
+		aggregatedProfilerData = mergedProfilerData.reduce((mergedEntry, entry) => merge(entry, mergedEntry), null);
+	} catch (e) {
+		console.error(e);
+		document.getElementById("main").replaceChildren(createElement("span", null, loading => loading.innerHTML = "Failed reading profiler result file: " + e));
+		return;
+	}
 
 	// Create HTML elements using profiler data
 	let chart;
-	document.getElementById("main").replaceChildren(
-		createElement("div", "merge-view", container => {
-			container.appendChild(createElement("h1", null, head => {
-				head.innerHTML = "Merge View";
-			}));
+	try {
+		document.getElementById("main").replaceChildren(
+			createElement("div", "merge-view", container => {
+				container.appendChild(createElement("h1", null, head => {
+					head.innerHTML = "Merge View";
+				}));
 
-			container.appendChild(createRootNode(aggregatedProfilerData, "merge-view", entry => {
-				let path = [];
-				let e = entry;
-				while (e) {
-					path.push(e.name);
-					e = e.parent;
-				}
-				path = path.reverse();
+				container.appendChild(createRootNode(aggregatedProfilerData, "merge-view", entry => {
+					let path = [];
+					let e = entry;
+					while (e) {
+						path.push(e.name);
+						e = e.parent;
+					}
+					path = path.reverse();
 
-				chart.data.datasets.at(0).data = mergedProfilerData.map((value, index) => {
-					return path.slice(1).reduce((e, name) => e?.children[name], value)?.time ?? 0;
-				});
-				chart.update();
-			}));
+					chart.data.datasets.at(0).data = mergedProfilerData.map((value, index) => {
+						return path.slice(1).reduce((e, name) => e?.children[name], value)?.time ?? 0;
+					});
+					chart.update();
+				}));
 
-			return container;
-		}),
-		document.createElement("hr"),
-		createElement("div", "graph", container => {
-			container.appendChild(createElement("h1", null, head => {
-				head.innerHTML = "Graph View";
-			}));
+				return container;
+			}),
+			document.createElement("hr"),
+			createElement("div", "graph", container => {
+				container.appendChild(createElement("h1", null, head => {
+					head.innerHTML = "Graph View";
+				}));
 
-			container.appendChild(createElement("canvas", null, canvas => {
-				chart = new Chart(canvas, {
-					type: "bar",
-					data: {
-						labels: mergedProfilerData.map((_, index) => index.toString()),
-						datasets: [{
-							data: mergedProfilerData.map(value => value.time),
-							barPercentage: 1.0,
-							categoryPercentage: 1.0
-						}]
-					},
-					options: {
-						animation: false,
-						onClick: (_, elements) => {
-							if (elements.length > 0) {
-								let oldElement = document.getElementById("frame-view");
-								let newElement = createRootNode(profilerData[elements[0].index], "frame-view");
-								oldElement.parentNode.replaceChild(newElement, oldElement);
+				container.appendChild(createElement("canvas", null, canvas => {
+					chart = new Chart(canvas, {
+						type: "bar",
+						data: {
+							labels: mergedProfilerData.map((_, index) => index.toString()),
+							datasets: [{
+								data: mergedProfilerData.map(value => value.time),
+								barPercentage: 1.0,
+								categoryPercentage: 1.0
+							}]
+						},
+						options: {
+							animation: false,
+							onClick: (_, elements) => {
+								if (elements.length > 0) {
+									let oldElement = document.getElementById("frame-view");
+									let newElement = createRootNode(profilerData[elements[0].index], "frame-view");
+									oldElement.parentNode.replaceChild(newElement, oldElement);
+								}
 							}
 						}
-					}
-				});
-			}));
+					});
+				}));
 
-			return container;
-		}),
-		document.createElement("hr"),
-		createElement("div", "frame-view", container => {
-			container.appendChild(createElement("h1", null, head => {
-				head.innerHTML = "Frame View";
-			}));
+				return container;
+			}),
+			document.createElement("hr"),
+			createElement("div", "frame-view", container => {
+				container.appendChild(createElement("h1", null, head => {
+					head.innerHTML = "Frame View";
+				}));
 
-			container.appendChild(createElement("span", null, tooltip => {
-				tooltip.id = "frame-view";
-				tooltip.innerHTML = "Click in graph view";
-			}));
+				container.appendChild(createElement("span", null, tooltip => {
+					tooltip.id = "frame-view";
+					tooltip.innerHTML = "Click in graph view";
+				}));
 
-			return container;
-		})
-	);
+				return container;
+			})
+		);
+	} catch (e) {
+		console.error(e);
+		document.getElementById("main").replaceChildren(createElement("span", null, loading => loading.innerHTML = "Failed creating html elements for profiler result: " + e));
+		return;
+	}
 }
 
 function merge(entry, mergedEntry = null, parent = null) {
