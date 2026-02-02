@@ -17657,899 +17657,31 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
 
 /***/ },
 
-/***/ "../node_modules/seek-bzip/lib/bitreader.js"
-/*!**************************************************!*\
-  !*** ../node_modules/seek-bzip/lib/bitreader.js ***!
-  \**************************************************/
-(module) {
-
-/*
-node-bzip - a pure-javascript Node.JS module for decoding bzip2 data
-
-Copyright (C) 2012 Eli Skeggs
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-Adapted from bzip2.js, copyright 2011 antimatter15 (antimatter15@gmail.com).
-
-Based on micro-bunzip by Rob Landley (rob@landley.net).
-
-Based on bzip2 decompression code by Julian R Seward (jseward@acm.org),
-which also acknowledges contributions by Mike Burrows, David Wheeler,
-Peter Fenwick, Alistair Moffat, Radford Neal, Ian H. Witten,
-Robert Sedgewick, and Jon L. Bentley.
-*/
-
-var BITMASK = [0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F, 0xFF];
-
-// offset in bytes
-var BitReader = function(stream) {
-  this.stream = stream;
-  this.bitOffset = 0;
-  this.curByte = 0;
-  this.hasByte = false;
-};
-
-BitReader.prototype._ensureByte = function() {
-  if (!this.hasByte) {
-    this.curByte = this.stream.readByte();
-    this.hasByte = true;
-  }
-};
-
-// reads bits from the buffer
-BitReader.prototype.read = function(bits) {
-  var result = 0;
-  while (bits > 0) {
-    this._ensureByte();
-    var remaining = 8 - this.bitOffset;
-    // if we're in a byte
-    if (bits >= remaining) {
-      result <<= remaining;
-      result |= BITMASK[remaining] & this.curByte;
-      this.hasByte = false;
-      this.bitOffset = 0;
-      bits -= remaining;
-    } else {
-      result <<= bits;
-      var shift = remaining - bits;
-      result |= (this.curByte & (BITMASK[bits] << shift)) >> shift;
-      this.bitOffset += bits;
-      bits = 0;
-    }
-  }
-  return result;
-};
-
-// seek to an arbitrary point in the buffer (expressed in bits)
-BitReader.prototype.seek = function(pos) {
-  var n_bit = pos % 8;
-  var n_byte = (pos - n_bit) / 8;
-  this.bitOffset = n_bit;
-  this.stream.seek(n_byte);
-  this.hasByte = false;
-};
-
-// reads 6 bytes worth of data using the read method
-BitReader.prototype.pi = function() {
-  var buf = new Buffer(6), i;
-  for (i = 0; i < buf.length; i++) {
-    buf[i] = this.read(8);
-  }
-  return buf.toString('hex');
-};
-
-module.exports = BitReader;
-
-
-/***/ },
-
-/***/ "../node_modules/seek-bzip/lib/crc32.js"
-/*!**********************************************!*\
-  !*** ../node_modules/seek-bzip/lib/crc32.js ***!
-  \**********************************************/
-(module) {
-
-/* CRC32, used in Bzip2 implementation.
- * This is a port of CRC32.java from the jbzip2 implementation at
- *   https://code.google.com/p/jbzip2
- * which is:
- *   Copyright (c) 2011 Matthew Francis
- *
- *   Permission is hereby granted, free of charge, to any person
- *   obtaining a copy of this software and associated documentation
- *   files (the "Software"), to deal in the Software without
- *   restriction, including without limitation the rights to use,
- *   copy, modify, merge, publish, distribute, sublicense, and/or sell
- *   copies of the Software, and to permit persons to whom the
- *   Software is furnished to do so, subject to the following
- *   conditions:
- *
- *   The above copyright notice and this permission notice shall be
- *   included in all copies or substantial portions of the Software.
- *
- *   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- *   OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- *   HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- *   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- *   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- *   OTHER DEALINGS IN THE SOFTWARE.
- * This JavaScript implementation is:
- *   Copyright (c) 2013 C. Scott Ananian
- * with the same licensing terms as Matthew Francis' original implementation.
- */
-module.exports = (function() {
-
-  /**
-   * A static CRC lookup table
-   */
-  var crc32Lookup = new Uint32Array([
-    0x00000000, 0x04c11db7, 0x09823b6e, 0x0d4326d9, 0x130476dc, 0x17c56b6b, 0x1a864db2, 0x1e475005,
-    0x2608edb8, 0x22c9f00f, 0x2f8ad6d6, 0x2b4bcb61, 0x350c9b64, 0x31cd86d3, 0x3c8ea00a, 0x384fbdbd,
-    0x4c11db70, 0x48d0c6c7, 0x4593e01e, 0x4152fda9, 0x5f15adac, 0x5bd4b01b, 0x569796c2, 0x52568b75,
-    0x6a1936c8, 0x6ed82b7f, 0x639b0da6, 0x675a1011, 0x791d4014, 0x7ddc5da3, 0x709f7b7a, 0x745e66cd,
-    0x9823b6e0, 0x9ce2ab57, 0x91a18d8e, 0x95609039, 0x8b27c03c, 0x8fe6dd8b, 0x82a5fb52, 0x8664e6e5,
-    0xbe2b5b58, 0xbaea46ef, 0xb7a96036, 0xb3687d81, 0xad2f2d84, 0xa9ee3033, 0xa4ad16ea, 0xa06c0b5d,
-    0xd4326d90, 0xd0f37027, 0xddb056fe, 0xd9714b49, 0xc7361b4c, 0xc3f706fb, 0xceb42022, 0xca753d95,
-    0xf23a8028, 0xf6fb9d9f, 0xfbb8bb46, 0xff79a6f1, 0xe13ef6f4, 0xe5ffeb43, 0xe8bccd9a, 0xec7dd02d,
-    0x34867077, 0x30476dc0, 0x3d044b19, 0x39c556ae, 0x278206ab, 0x23431b1c, 0x2e003dc5, 0x2ac12072,
-    0x128e9dcf, 0x164f8078, 0x1b0ca6a1, 0x1fcdbb16, 0x018aeb13, 0x054bf6a4, 0x0808d07d, 0x0cc9cdca,
-    0x7897ab07, 0x7c56b6b0, 0x71159069, 0x75d48dde, 0x6b93dddb, 0x6f52c06c, 0x6211e6b5, 0x66d0fb02,
-    0x5e9f46bf, 0x5a5e5b08, 0x571d7dd1, 0x53dc6066, 0x4d9b3063, 0x495a2dd4, 0x44190b0d, 0x40d816ba,
-    0xaca5c697, 0xa864db20, 0xa527fdf9, 0xa1e6e04e, 0xbfa1b04b, 0xbb60adfc, 0xb6238b25, 0xb2e29692,
-    0x8aad2b2f, 0x8e6c3698, 0x832f1041, 0x87ee0df6, 0x99a95df3, 0x9d684044, 0x902b669d, 0x94ea7b2a,
-    0xe0b41de7, 0xe4750050, 0xe9362689, 0xedf73b3e, 0xf3b06b3b, 0xf771768c, 0xfa325055, 0xfef34de2,
-    0xc6bcf05f, 0xc27dede8, 0xcf3ecb31, 0xcbffd686, 0xd5b88683, 0xd1799b34, 0xdc3abded, 0xd8fba05a,
-    0x690ce0ee, 0x6dcdfd59, 0x608edb80, 0x644fc637, 0x7a089632, 0x7ec98b85, 0x738aad5c, 0x774bb0eb,
-    0x4f040d56, 0x4bc510e1, 0x46863638, 0x42472b8f, 0x5c007b8a, 0x58c1663d, 0x558240e4, 0x51435d53,
-    0x251d3b9e, 0x21dc2629, 0x2c9f00f0, 0x285e1d47, 0x36194d42, 0x32d850f5, 0x3f9b762c, 0x3b5a6b9b,
-    0x0315d626, 0x07d4cb91, 0x0a97ed48, 0x0e56f0ff, 0x1011a0fa, 0x14d0bd4d, 0x19939b94, 0x1d528623,
-    0xf12f560e, 0xf5ee4bb9, 0xf8ad6d60, 0xfc6c70d7, 0xe22b20d2, 0xe6ea3d65, 0xeba91bbc, 0xef68060b,
-    0xd727bbb6, 0xd3e6a601, 0xdea580d8, 0xda649d6f, 0xc423cd6a, 0xc0e2d0dd, 0xcda1f604, 0xc960ebb3,
-    0xbd3e8d7e, 0xb9ff90c9, 0xb4bcb610, 0xb07daba7, 0xae3afba2, 0xaafbe615, 0xa7b8c0cc, 0xa379dd7b,
-    0x9b3660c6, 0x9ff77d71, 0x92b45ba8, 0x9675461f, 0x8832161a, 0x8cf30bad, 0x81b02d74, 0x857130c3,
-    0x5d8a9099, 0x594b8d2e, 0x5408abf7, 0x50c9b640, 0x4e8ee645, 0x4a4ffbf2, 0x470cdd2b, 0x43cdc09c,
-    0x7b827d21, 0x7f436096, 0x7200464f, 0x76c15bf8, 0x68860bfd, 0x6c47164a, 0x61043093, 0x65c52d24,
-    0x119b4be9, 0x155a565e, 0x18197087, 0x1cd86d30, 0x029f3d35, 0x065e2082, 0x0b1d065b, 0x0fdc1bec,
-    0x3793a651, 0x3352bbe6, 0x3e119d3f, 0x3ad08088, 0x2497d08d, 0x2056cd3a, 0x2d15ebe3, 0x29d4f654,
-    0xc5a92679, 0xc1683bce, 0xcc2b1d17, 0xc8ea00a0, 0xd6ad50a5, 0xd26c4d12, 0xdf2f6bcb, 0xdbee767c,
-    0xe3a1cbc1, 0xe760d676, 0xea23f0af, 0xeee2ed18, 0xf0a5bd1d, 0xf464a0aa, 0xf9278673, 0xfde69bc4,
-    0x89b8fd09, 0x8d79e0be, 0x803ac667, 0x84fbdbd0, 0x9abc8bd5, 0x9e7d9662, 0x933eb0bb, 0x97ffad0c,
-    0xafb010b1, 0xab710d06, 0xa6322bdf, 0xa2f33668, 0xbcb4666d, 0xb8757bda, 0xb5365d03, 0xb1f740b4
-  ]);
-
-  var CRC32 = function() {
-    /**
-     * The current CRC
-     */
-    var crc = 0xffffffff;
-
-    /**
-     * @return The current CRC
-     */
-    this.getCRC = function() {
-      return (~crc) >>> 0; // return an unsigned value
-    };
-
-    /**
-     * Update the CRC with a single byte
-     * @param value The value to update the CRC with
-     */
-    this.updateCRC = function(value) {
-      crc = (crc << 8) ^ crc32Lookup[((crc >>> 24) ^ value) & 0xff];
-    };
-
-    /**
-     * Update the CRC with a sequence of identical bytes
-     * @param value The value to update the CRC with
-     * @param count The number of bytes
-     */
-    this.updateCRCRun = function(value, count) {
-      while (count-- > 0) {
-        crc = (crc << 8) ^ crc32Lookup[((crc >>> 24) ^ value) & 0xff];
-      }
-    };
-  };
-  return CRC32;
-})();
-
-
-/***/ },
-
-/***/ "../node_modules/seek-bzip/lib/index.js"
-/*!**********************************************!*\
-  !*** ../node_modules/seek-bzip/lib/index.js ***!
-  \**********************************************/
-(module, __unused_webpack_exports, __webpack_require__) {
-
-/*
-seek-bzip - a pure-javascript module for seeking within bzip2 data
-
-Copyright (C) 2013 C. Scott Ananian
-Copyright (C) 2012 Eli Skeggs
-Copyright (C) 2011 Kevin Kwok
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-Adapted from node-bzip, copyright 2012 Eli Skeggs.
-Adapted from bzip2.js, copyright 2011 Kevin Kwok (antimatter15@gmail.com).
-
-Based on micro-bunzip by Rob Landley (rob@landley.net).
-
-Based on bzip2 decompression code by Julian R Seward (jseward@acm.org),
-which also acknowledges contributions by Mike Burrows, David Wheeler,
-Peter Fenwick, Alistair Moffat, Radford Neal, Ian H. Witten,
-Robert Sedgewick, and Jon L. Bentley.
-*/
-
-var BitReader = __webpack_require__(/*! ./bitreader */ "../node_modules/seek-bzip/lib/bitreader.js");
-var Stream = __webpack_require__(/*! ./stream */ "../node_modules/seek-bzip/lib/stream.js");
-var CRC32 = __webpack_require__(/*! ./crc32 */ "../node_modules/seek-bzip/lib/crc32.js");
-var pjson = __webpack_require__(/*! ../package.json */ "../node_modules/seek-bzip/package.json");
-
-var MAX_HUFCODE_BITS = 20;
-var MAX_SYMBOLS = 258;
-var SYMBOL_RUNA = 0;
-var SYMBOL_RUNB = 1;
-var MIN_GROUPS = 2;
-var MAX_GROUPS = 6;
-var GROUP_SIZE = 50;
-
-var WHOLEPI = "314159265359";
-var SQRTPI = "177245385090";
-
-var mtf = function(array, index) {
-  var src = array[index], i;
-  for (i = index; i > 0; i--) {
-    array[i] = array[i-1];
-  }
-  array[0] = src;
-  return src;
-};
-
-var Err = {
-  OK: 0,
-  LAST_BLOCK: -1,
-  NOT_BZIP_DATA: -2,
-  UNEXPECTED_INPUT_EOF: -3,
-  UNEXPECTED_OUTPUT_EOF: -4,
-  DATA_ERROR: -5,
-  OUT_OF_MEMORY: -6,
-  OBSOLETE_INPUT: -7,
-  END_OF_BLOCK: -8
-};
-var ErrorMessages = {};
-ErrorMessages[Err.LAST_BLOCK] =            "Bad file checksum";
-ErrorMessages[Err.NOT_BZIP_DATA] =         "Not bzip data";
-ErrorMessages[Err.UNEXPECTED_INPUT_EOF] =  "Unexpected input EOF";
-ErrorMessages[Err.UNEXPECTED_OUTPUT_EOF] = "Unexpected output EOF";
-ErrorMessages[Err.DATA_ERROR] =            "Data error";
-ErrorMessages[Err.OUT_OF_MEMORY] =         "Out of memory";
-ErrorMessages[Err.OBSOLETE_INPUT] = "Obsolete (pre 0.9.5) bzip format not supported.";
-
-var _throw = function(status, optDetail) {
-  var msg = ErrorMessages[status] || 'unknown error';
-  if (optDetail) { msg += ': '+optDetail; }
-  var e = new TypeError(msg);
-  e.errorCode = status;
-  throw e;
-};
-
-var Bunzip = function(inputStream, outputStream) {
-  this.writePos = this.writeCurrent = this.writeCount = 0;
-
-  this._start_bunzip(inputStream, outputStream);
-};
-Bunzip.prototype._init_block = function() {
-  var moreBlocks = this._get_next_block();
-  if ( !moreBlocks ) {
-    this.writeCount = -1;
-    return false; /* no more blocks */
-  }
-  this.blockCRC = new CRC32();
-  return true;
-};
-/* XXX micro-bunzip uses (inputStream, inputBuffer, len) as arguments */
-Bunzip.prototype._start_bunzip = function(inputStream, outputStream) {
-  /* Ensure that file starts with "BZh['1'-'9']." */
-  var buf = new Buffer(4);
-  if (inputStream.read(buf, 0, 4) !== 4 ||
-      String.fromCharCode(buf[0], buf[1], buf[2]) !== 'BZh')
-    _throw(Err.NOT_BZIP_DATA, 'bad magic');
-
-  var level = buf[3] - 0x30;
-  if (level < 1 || level > 9)
-    _throw(Err.NOT_BZIP_DATA, 'level out of range');
-
-  this.reader = new BitReader(inputStream);
-
-  /* Fourth byte (ascii '1'-'9'), indicates block size in units of 100k of
-     uncompressed data.  Allocate intermediate buffer for block. */
-  this.dbufSize = 100000 * level;
-  this.nextoutput = 0;
-  this.outputStream = outputStream;
-  this.streamCRC = 0;
-};
-Bunzip.prototype._get_next_block = function() {
-  var i, j, k;
-  var reader = this.reader;
-  // this is get_next_block() function from micro-bunzip:
-  /* Read in header signature and CRC, then validate signature.
-     (last block signature means CRC is for whole file, return now) */
-  var h = reader.pi();
-  if (h === SQRTPI) { // last block
-    return false; /* no more blocks */
-  }
-  if (h !== WHOLEPI)
-    _throw(Err.NOT_BZIP_DATA);
-  this.targetBlockCRC = reader.read(32) >>> 0; // (convert to unsigned)
-  this.streamCRC = (this.targetBlockCRC ^
-                    ((this.streamCRC << 1) | (this.streamCRC>>>31))) >>> 0;
-  /* We can add support for blockRandomised if anybody complains.  There was
-     some code for this in busybox 1.0.0-pre3, but nobody ever noticed that
-     it didn't actually work. */
-  if (reader.read(1))
-    _throw(Err.OBSOLETE_INPUT);
-  var origPointer = reader.read(24);
-  if (origPointer > this.dbufSize)
-    _throw(Err.DATA_ERROR, 'initial position out of bounds');
-  /* mapping table: if some byte values are never used (encoding things
-     like ascii text), the compression code removes the gaps to have fewer
-     symbols to deal with, and writes a sparse bitfield indicating which
-     values were present.  We make a translation table to convert the symbols
-     back to the corresponding bytes. */
-  var t = reader.read(16);
-  var symToByte = new Buffer(256), symTotal = 0;
-  for (i = 0; i < 16; i++) {
-    if (t & (1 << (0xF - i))) {
-      var o = i * 16;
-      k = reader.read(16);
-      for (j = 0; j < 16; j++)
-        if (k & (1 << (0xF - j)))
-          symToByte[symTotal++] = o + j;
-    }
-  }
-
-  /* How many different huffman coding groups does this block use? */
-  var groupCount = reader.read(3);
-  if (groupCount < MIN_GROUPS || groupCount > MAX_GROUPS)
-    _throw(Err.DATA_ERROR);
-  /* nSelectors: Every GROUP_SIZE many symbols we select a new huffman coding
-     group.  Read in the group selector list, which is stored as MTF encoded
-     bit runs.  (MTF=Move To Front, as each value is used it's moved to the
-     start of the list.) */
-  var nSelectors = reader.read(15);
-  if (nSelectors === 0)
-    _throw(Err.DATA_ERROR);
-
-  var mtfSymbol = new Buffer(256);
-  for (i = 0; i < groupCount; i++)
-    mtfSymbol[i] = i;
-
-  var selectors = new Buffer(nSelectors); // was 32768...
-
-  for (i = 0; i < nSelectors; i++) {
-    /* Get next value */
-    for (j = 0; reader.read(1); j++)
-      if (j >= groupCount) _throw(Err.DATA_ERROR);
-    /* Decode MTF to get the next selector */
-    selectors[i] = mtf(mtfSymbol, j);
-  }
-
-  /* Read the huffman coding tables for each group, which code for symTotal
-     literal symbols, plus two run symbols (RUNA, RUNB) */
-  var symCount = symTotal + 2;
-  var groups = [], hufGroup;
-  for (j = 0; j < groupCount; j++) {
-    var length = new Buffer(symCount), temp = new Uint16Array(MAX_HUFCODE_BITS + 1);
-    /* Read huffman code lengths for each symbol.  They're stored in
-       a way similar to mtf; record a starting value for the first symbol,
-       and an offset from the previous value for everys symbol after that. */
-    t = reader.read(5); // lengths
-    for (i = 0; i < symCount; i++) {
-      for (;;) {
-        if (t < 1 || t > MAX_HUFCODE_BITS) _throw(Err.DATA_ERROR);
-        /* If first bit is 0, stop.  Else second bit indicates whether
-           to increment or decrement the value. */
-        if(!reader.read(1))
-          break;
-        if(!reader.read(1))
-          t++;
-        else
-          t--;
-      }
-      length[i] = t;
-    }
-
-    /* Find largest and smallest lengths in this group */
-    var minLen,  maxLen;
-    minLen = maxLen = length[0];
-    for (i = 1; i < symCount; i++) {
-      if (length[i] > maxLen)
-        maxLen = length[i];
-      else if (length[i] < minLen)
-        minLen = length[i];
-    }
-
-    /* Calculate permute[], base[], and limit[] tables from length[].
-     *
-     * permute[] is the lookup table for converting huffman coded symbols
-     * into decoded symbols.  base[] is the amount to subtract from the
-     * value of a huffman symbol of a given length when using permute[].
-     *
-     * limit[] indicates the largest numerical value a symbol with a given
-     * number of bits can have.  This is how the huffman codes can vary in
-     * length: each code with a value>limit[length] needs another bit.
-     */
-    hufGroup = {};
-    groups.push(hufGroup);
-    hufGroup.permute = new Uint16Array(MAX_SYMBOLS);
-    hufGroup.limit = new Uint32Array(MAX_HUFCODE_BITS + 2);
-    hufGroup.base = new Uint32Array(MAX_HUFCODE_BITS + 1);
-    hufGroup.minLen = minLen;
-    hufGroup.maxLen = maxLen;
-    /* Calculate permute[].  Concurently, initialize temp[] and limit[]. */
-    var pp = 0;
-    for (i = minLen; i <= maxLen; i++) {
-      temp[i] = hufGroup.limit[i] = 0;
-      for (t = 0; t < symCount; t++)
-        if (length[t] === i)
-          hufGroup.permute[pp++] = t;
-    }
-    /* Count symbols coded for at each bit length */
-    for (i = 0; i < symCount; i++)
-      temp[length[i]]++;
-    /* Calculate limit[] (the largest symbol-coding value at each bit
-     * length, which is (previous limit<<1)+symbols at this level), and
-     * base[] (number of symbols to ignore at each bit length, which is
-     * limit minus the cumulative count of symbols coded for already). */
-    pp = t = 0;
-    for (i = minLen; i < maxLen; i++) {
-      pp += temp[i];
-      /* We read the largest possible symbol size and then unget bits
-         after determining how many we need, and those extra bits could
-         be set to anything.  (They're noise from future symbols.)  At
-         each level we're really only interested in the first few bits,
-         so here we set all the trailing to-be-ignored bits to 1 so they
-         don't affect the value>limit[length] comparison. */
-      hufGroup.limit[i] = pp - 1;
-      pp <<= 1;
-      t += temp[i];
-      hufGroup.base[i + 1] = pp - t;
-    }
-    hufGroup.limit[maxLen + 1] = Number.MAX_VALUE; /* Sentinal value for reading next sym. */
-    hufGroup.limit[maxLen] = pp + temp[maxLen] - 1;
-    hufGroup.base[minLen] = 0;
-  }
-  /* We've finished reading and digesting the block header.  Now read this
-     block's huffman coded symbols from the file and undo the huffman coding
-     and run length encoding, saving the result into dbuf[dbufCount++]=uc */
-
-  /* Initialize symbol occurrence counters and symbol Move To Front table */
-  var byteCount = new Uint32Array(256);
-  for (i = 0; i < 256; i++)
-    mtfSymbol[i] = i;
-  /* Loop through compressed symbols. */
-  var runPos = 0, dbufCount = 0, selector = 0, uc;
-  var dbuf = this.dbuf = new Uint32Array(this.dbufSize);
-  symCount = 0;
-  for (;;) {
-    /* Determine which huffman coding group to use. */
-    if (!(symCount--)) {
-      symCount = GROUP_SIZE - 1;
-      if (selector >= nSelectors) { _throw(Err.DATA_ERROR); }
-      hufGroup = groups[selectors[selector++]];
-    }
-    /* Read next huffman-coded symbol. */
-    i = hufGroup.minLen;
-    j = reader.read(i);
-    for (;;i++) {
-      if (i > hufGroup.maxLen) { _throw(Err.DATA_ERROR); }
-      if (j <= hufGroup.limit[i])
-        break;
-      j = (j << 1) | reader.read(1);
-    }
-    /* Huffman decode value to get nextSym (with bounds checking) */
-    j -= hufGroup.base[i];
-    if (j < 0 || j >= MAX_SYMBOLS) { _throw(Err.DATA_ERROR); }
-    var nextSym = hufGroup.permute[j];
-    /* We have now decoded the symbol, which indicates either a new literal
-       byte, or a repeated run of the most recent literal byte.  First,
-       check if nextSym indicates a repeated run, and if so loop collecting
-       how many times to repeat the last literal. */
-    if (nextSym === SYMBOL_RUNA || nextSym === SYMBOL_RUNB) {
-      /* If this is the start of a new run, zero out counter */
-      if (!runPos){
-        runPos = 1;
-        t = 0;
-      }
-      /* Neat trick that saves 1 symbol: instead of or-ing 0 or 1 at
-         each bit position, add 1 or 2 instead.  For example,
-         1011 is 1<<0 + 1<<1 + 2<<2.  1010 is 2<<0 + 2<<1 + 1<<2.
-         You can make any bit pattern that way using 1 less symbol than
-         the basic or 0/1 method (except all bits 0, which would use no
-         symbols, but a run of length 0 doesn't mean anything in this
-         context).  Thus space is saved. */
-      if (nextSym === SYMBOL_RUNA)
-        t += runPos;
-      else
-        t += 2 * runPos;
-      runPos <<= 1;
-      continue;
-    }
-    /* When we hit the first non-run symbol after a run, we now know
-       how many times to repeat the last literal, so append that many
-       copies to our buffer of decoded symbols (dbuf) now.  (The last
-       literal used is the one at the head of the mtfSymbol array.) */
-    if (runPos){
-      runPos = 0;
-      if (dbufCount + t > this.dbufSize) { _throw(Err.DATA_ERROR); }
-      uc = symToByte[mtfSymbol[0]];
-      byteCount[uc] += t;
-      while (t--)
-        dbuf[dbufCount++] = uc;
-    }
-    /* Is this the terminating symbol? */
-    if (nextSym > symTotal)
-      break;
-    /* At this point, nextSym indicates a new literal character.  Subtract
-       one to get the position in the MTF array at which this literal is
-       currently to be found.  (Note that the result can't be -1 or 0,
-       because 0 and 1 are RUNA and RUNB.  But another instance of the
-       first symbol in the mtf array, position 0, would have been handled
-       as part of a run above.  Therefore 1 unused mtf position minus
-       2 non-literal nextSym values equals -1.) */
-    if (dbufCount >= this.dbufSize) { _throw(Err.DATA_ERROR); }
-    i = nextSym - 1;
-    uc = mtf(mtfSymbol, i);
-    uc = symToByte[uc];
-    /* We have our literal byte.  Save it into dbuf. */
-    byteCount[uc]++;
-    dbuf[dbufCount++] = uc;
-  }
-  /* At this point, we've read all the huffman-coded symbols (and repeated
-     runs) for this block from the input stream, and decoded them into the
-     intermediate buffer.  There are dbufCount many decoded bytes in dbuf[].
-     Now undo the Burrows-Wheeler transform on dbuf.
-     See http://dogma.net/markn/articles/bwt/bwt.htm
-  */
-  if (origPointer < 0 || origPointer >= dbufCount) { _throw(Err.DATA_ERROR); }
-  /* Turn byteCount into cumulative occurrence counts of 0 to n-1. */
-  j = 0;
-  for (i = 0; i < 256; i++) {
-    k = j + byteCount[i];
-    byteCount[i] = j;
-    j = k;
-  }
-  /* Figure out what order dbuf would be in if we sorted it. */
-  for (i = 0; i < dbufCount; i++) {
-    uc = dbuf[i] & 0xff;
-    dbuf[byteCount[uc]] |= (i << 8);
-    byteCount[uc]++;
-  }
-  /* Decode first byte by hand to initialize "previous" byte.  Note that it
-     doesn't get output, and if the first three characters are identical
-     it doesn't qualify as a run (hence writeRunCountdown=5). */
-  var pos = 0, current = 0, run = 0;
-  if (dbufCount) {
-    pos = dbuf[origPointer];
-    current = (pos & 0xff);
-    pos >>= 8;
-    run = -1;
-  }
-  this.writePos = pos;
-  this.writeCurrent = current;
-  this.writeCount = dbufCount;
-  this.writeRun = run;
-
-  return true; /* more blocks to come */
-};
-/* Undo burrows-wheeler transform on intermediate buffer to produce output.
-   If start_bunzip was initialized with out_fd=-1, then up to len bytes of
-   data are written to outbuf.  Return value is number of bytes written or
-   error (all errors are negative numbers).  If out_fd!=-1, outbuf and len
-   are ignored, data is written to out_fd and return is RETVAL_OK or error.
-*/
-Bunzip.prototype._read_bunzip = function(outputBuffer, len) {
-    var copies, previous, outbyte;
-    /* james@jamestaylor.org: writeCount goes to -1 when the buffer is fully
-       decoded, which results in this returning RETVAL_LAST_BLOCK, also
-       equal to -1... Confusing, I'm returning 0 here to indicate no
-       bytes written into the buffer */
-  if (this.writeCount < 0) { return 0; }
-
-  var gotcount = 0;
-  var dbuf = this.dbuf, pos = this.writePos, current = this.writeCurrent;
-  var dbufCount = this.writeCount, outputsize = this.outputsize;
-  var run = this.writeRun;
-
-  while (dbufCount) {
-    dbufCount--;
-    previous = current;
-    pos = dbuf[pos];
-    current = pos & 0xff;
-    pos >>= 8;
-    if (run++ === 3){
-      copies = current;
-      outbyte = previous;
-      current = -1;
-    } else {
-      copies = 1;
-      outbyte = current;
-    }
-    this.blockCRC.updateCRCRun(outbyte, copies);
-    while (copies--) {
-      this.outputStream.writeByte(outbyte);
-      this.nextoutput++;
-    }
-    if (current != previous)
-      run = 0;
-  }
-  this.writeCount = dbufCount;
-  // check CRC
-  if (this.blockCRC.getCRC() !== this.targetBlockCRC) {
-    _throw(Err.DATA_ERROR, "Bad block CRC "+
-           "(got "+this.blockCRC.getCRC().toString(16)+
-           " expected "+this.targetBlockCRC.toString(16)+")");
-  }
-  return this.nextoutput;
-};
-
-var coerceInputStream = function(input) {
-  if ('readByte' in input) { return input; }
-  var inputStream = new Stream();
-  inputStream.pos = 0;
-  inputStream.readByte = function() { return input[this.pos++]; };
-  inputStream.seek = function(pos) { this.pos = pos; };
-  inputStream.eof = function() { return this.pos >= input.length; };
-  return inputStream;
-};
-var coerceOutputStream = function(output) {
-  var outputStream = new Stream();
-  var resizeOk = true;
-  if (output) {
-    if (typeof(output)==='number') {
-      outputStream.buffer = new Buffer(output);
-      resizeOk = false;
-    } else if ('writeByte' in output) {
-      return output;
-    } else {
-      outputStream.buffer = output;
-      resizeOk = false;
-    }
-  } else {
-    outputStream.buffer = new Buffer(16384);
-  }
-  outputStream.pos = 0;
-  outputStream.writeByte = function(_byte) {
-    if (resizeOk && this.pos >= this.buffer.length) {
-      var newBuffer = new Buffer(this.buffer.length*2);
-      this.buffer.copy(newBuffer);
-      this.buffer = newBuffer;
-    }
-    this.buffer[this.pos++] = _byte;
-  };
-  outputStream.getBuffer = function() {
-    // trim buffer
-    if (this.pos !== this.buffer.length) {
-      if (!resizeOk)
-        throw new TypeError('outputsize does not match decoded input');
-      var newBuffer = new Buffer(this.pos);
-      this.buffer.copy(newBuffer, 0, 0, this.pos);
-      this.buffer = newBuffer;
-    }
-    return this.buffer;
-  };
-  outputStream._coerced = true;
-  return outputStream;
-};
-
-/* Static helper functions */
-Bunzip.Err = Err;
-// 'input' can be a stream or a buffer
-// 'output' can be a stream or a buffer or a number (buffer size)
-Bunzip.decode = function(input, output, multistream) {
-  // make a stream from a buffer, if necessary
-  var inputStream = coerceInputStream(input);
-  var outputStream = coerceOutputStream(output);
-
-  var bz = new Bunzip(inputStream, outputStream);
-  while (true) {
-    if ('eof' in inputStream && inputStream.eof()) break;
-    if (bz._init_block()) {
-      bz._read_bunzip();
-    } else {
-      var targetStreamCRC = bz.reader.read(32) >>> 0; // (convert to unsigned)
-      if (targetStreamCRC !== bz.streamCRC) {
-        _throw(Err.DATA_ERROR, "Bad stream CRC "+
-               "(got "+bz.streamCRC.toString(16)+
-               " expected "+targetStreamCRC.toString(16)+")");
-      }
-      if (multistream &&
-          'eof' in inputStream &&
-          !inputStream.eof()) {
-        // note that start_bunzip will also resync the bit reader to next byte
-        bz._start_bunzip(inputStream, outputStream);
-      } else break;
-    }
-  }
-  if ('getBuffer' in outputStream)
-    return outputStream.getBuffer();
-};
-Bunzip.decodeBlock = function(input, pos, output) {
-  // make a stream from a buffer, if necessary
-  var inputStream = coerceInputStream(input);
-  var outputStream = coerceOutputStream(output);
-  var bz = new Bunzip(inputStream, outputStream);
-  bz.reader.seek(pos);
-  /* Fill the decode buffer for the block */
-  var moreBlocks = bz._get_next_block();
-  if (moreBlocks) {
-    /* Init the CRC for writing */
-    bz.blockCRC = new CRC32();
-
-    /* Zero this so the current byte from before the seek is not written */
-    bz.writeCopies = 0;
-
-    /* Decompress the block and write to stdout */
-    bz._read_bunzip();
-    // XXX keep writing?
-  }
-  if ('getBuffer' in outputStream)
-    return outputStream.getBuffer();
-};
-/* Reads bzip2 file from stream or buffer `input`, and invoke
- * `callback(position, size)` once for each bzip2 block,
- * where position gives the starting position (in *bits*)
- * and size gives uncompressed size of the block (in *bytes*). */
-Bunzip.table = function(input, callback, multistream) {
-  // make a stream from a buffer, if necessary
-  var inputStream = new Stream();
-  inputStream.delegate = coerceInputStream(input);
-  inputStream.pos = 0;
-  inputStream.readByte = function() {
-    this.pos++;
-    return this.delegate.readByte();
-  };
-  if (inputStream.delegate.eof) {
-    inputStream.eof = inputStream.delegate.eof.bind(inputStream.delegate);
-  }
-  var outputStream = new Stream();
-  outputStream.pos = 0;
-  outputStream.writeByte = function() { this.pos++; };
-
-  var bz = new Bunzip(inputStream, outputStream);
-  var blockSize = bz.dbufSize;
-  while (true) {
-    if ('eof' in inputStream && inputStream.eof()) break;
-
-    var position = inputStream.pos*8 + bz.reader.bitOffset;
-    if (bz.reader.hasByte) { position -= 8; }
-
-    if (bz._init_block()) {
-      var start = outputStream.pos;
-      bz._read_bunzip();
-      callback(position, outputStream.pos - start);
-    } else {
-      var crc = bz.reader.read(32); // (but we ignore the crc)
-      if (multistream &&
-          'eof' in inputStream &&
-          !inputStream.eof()) {
-        // note that start_bunzip will also resync the bit reader to next byte
-        bz._start_bunzip(inputStream, outputStream);
-        console.assert(bz.dbufSize === blockSize,
-                       "shouldn't change block size within multistream file");
-      } else break;
-    }
-  }
-};
-
-Bunzip.Stream = Stream;
-
-Bunzip.version = pjson.version;
-Bunzip.license = pjson.license;
-
-module.exports = Bunzip;
-
-
-/***/ },
-
-/***/ "../node_modules/seek-bzip/lib/stream.js"
-/*!***********************************************!*\
-  !*** ../node_modules/seek-bzip/lib/stream.js ***!
-  \***********************************************/
-(module) {
-
-/* very simple input/output stream interface */
-var Stream = function() {
-};
-
-// input streams //////////////
-/** Returns the next byte, or -1 for EOF. */
-Stream.prototype.readByte = function() {
-  throw new Error("abstract method readByte() not implemented");
-};
-/** Attempts to fill the buffer; returns number of bytes read, or
- *  -1 for EOF. */
-Stream.prototype.read = function(buffer, bufOffset, length) {
-  var bytesRead = 0;
-  while (bytesRead < length) {
-    var c = this.readByte();
-    if (c < 0) { // EOF
-      return (bytesRead===0) ? -1 : bytesRead;
-    }
-    buffer[bufOffset++] = c;
-    bytesRead++;
-  }
-  return bytesRead;
-};
-Stream.prototype.seek = function(new_pos) {
-  throw new Error("abstract method seek() not implemented");
-};
-
-// output streams ///////////
-Stream.prototype.writeByte = function(_byte) {
-  throw new Error("abstract method readByte() not implemented");
-};
-Stream.prototype.write = function(buffer, bufOffset, length) {
-  var i;
-  for (i=0; i<length; i++) {
-    this.writeByte(buffer[bufOffset++]);
-  }
-  return length;
-};
-Stream.prototype.flush = function() {
-};
-
-module.exports = Stream;
-
-
-/***/ },
-
-/***/ "../node_modules/seek-bzip/package.json"
-/*!**********************************************!*\
-  !*** ../node_modules/seek-bzip/package.json ***!
-  \**********************************************/
-(module) {
+/***/ "./bzip2.js"
+/*!******************!*\
+  !*** ./bzip2.js ***!
+  \******************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-module.exports = /*#__PURE__*/JSON.parse('{"name":"seek-bzip","version":"2.0.0","contributors":["C. Scott Ananian (http://cscott.net)","Eli Skeggs","Kevin Kwok","Rob Landley (http://landley.net)"],"description":"a pure-JavaScript Node.JS module for random-access decoding bzip2 data","main":"./lib/index.js","repository":{"type":"git","url":"https://github.com/cscott/seek-bzip.git"},"license":"MIT","bin":{"seek-bunzip":"./bin/seek-bunzip","seek-table":"./bin/seek-bzip-table"},"directories":{"test":"test"},"dependencies":{"commander":"^6.0.0"},"devDependencies":{"fibers":"^5.0.0","mocha":"^8.1.0"},"scripts":{"test":"mocha"}}');
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+async function Module(moduleArg={}){var moduleRtn;var Module=moduleArg;var ENVIRONMENT_IS_WEB=true;var ENVIRONMENT_IS_WORKER=false;var arguments_=[];var thisProgram="./this.program";var quit_=(status,toThrow)=>{throw toThrow};var _scriptName="file:///C:/Users/Meldexun/Documents/GitHub/LagSpikeProfiler-Viewer/src/bzip2.js";var scriptDirectory="";function locateFile(path){if(Module["locateFile"]){return Module["locateFile"](path,scriptDirectory)}return scriptDirectory+path}var readAsync,readBinary;if(ENVIRONMENT_IS_WEB||ENVIRONMENT_IS_WORKER){try{scriptDirectory=new URL(".",_scriptName).href}catch{}{readAsync=async url=>{var response=await fetch(url,{credentials:"same-origin"});if(response.ok){return response.arrayBuffer()}throw new Error(response.status+" : "+response.url)}}}else{}var out=console.log.bind(console);var err=console.error.bind(console);var wasmBinary;var ABORT=false;var EXITSTATUS;var readyPromiseResolve,readyPromiseReject;var HEAP8,HEAPU8,HEAP16,HEAPU16,HEAP32,HEAPU32,HEAPF32,HEAPF64;var HEAP64,HEAPU64;var runtimeInitialized=false;function updateMemoryViews(){var b=wasmMemory.buffer;HEAP8=new Int8Array(b);HEAP16=new Int16Array(b);Module["HEAPU8"]=HEAPU8=new Uint8Array(b);HEAPU16=new Uint16Array(b);HEAP32=new Int32Array(b);HEAPU32=new Uint32Array(b);HEAPF32=new Float32Array(b);HEAPF64=new Float64Array(b);HEAP64=new BigInt64Array(b);HEAPU64=new BigUint64Array(b)}function preRun(){if(Module["preRun"]){if(typeof Module["preRun"]=="function")Module["preRun"]=[Module["preRun"]];while(Module["preRun"].length){addOnPreRun(Module["preRun"].shift())}}callRuntimeCallbacks(onPreRuns)}function initRuntime(){runtimeInitialized=true;wasmExports["e"]()}function postRun(){if(Module["postRun"]){if(typeof Module["postRun"]=="function")Module["postRun"]=[Module["postRun"]];while(Module["postRun"].length){addOnPostRun(Module["postRun"].shift())}}callRuntimeCallbacks(onPostRuns)}function abort(what){Module["onAbort"]?.(what);what="Aborted("+what+")";err(what);ABORT=true;what+=". Build with -sASSERTIONS for more info.";var e=new WebAssembly.RuntimeError(what);readyPromiseReject?.(e);throw e}var wasmBinaryFile;function findWasmBinary(){if(Module["locateFile"]){return locateFile("bzip2.wasm")}return new URL(/* asset import */ __webpack_require__(/*! bzip2.wasm */ "./bzip2.wasm"), __webpack_require__.b).href}function getBinarySync(file){if(file==wasmBinaryFile&&wasmBinary){return new Uint8Array(wasmBinary)}if(readBinary){return readBinary(file)}throw"both async and sync fetching of the wasm failed"}async function getWasmBinary(binaryFile){if(!wasmBinary){try{var response=await readAsync(binaryFile);return new Uint8Array(response)}catch{}}return getBinarySync(binaryFile)}async function instantiateArrayBuffer(binaryFile,imports){try{var binary=await getWasmBinary(binaryFile);var instance=await WebAssembly.instantiate(binary,imports);return instance}catch(reason){err(`failed to asynchronously prepare wasm: ${reason}`);abort(reason)}}async function instantiateAsync(binary,binaryFile,imports){if(!binary){try{var response=fetch(binaryFile,{credentials:"same-origin"});var instantiationResult=await WebAssembly.instantiateStreaming(response,imports);return instantiationResult}catch(reason){err(`wasm streaming compile failed: ${reason}`);err("falling back to ArrayBuffer instantiation")}}return instantiateArrayBuffer(binaryFile,imports)}function getWasmImports(){var imports={a:wasmImports};return imports}async function createWasm(){function receiveInstance(instance,module){wasmExports=instance.exports;assignWasmExports(wasmExports);updateMemoryViews();return wasmExports}function receiveInstantiationResult(result){return receiveInstance(result["instance"])}var info=getWasmImports();if(Module["instantiateWasm"]){return new Promise((resolve,reject)=>{Module["instantiateWasm"](info,(inst,mod)=>{resolve(receiveInstance(inst,mod))})})}wasmBinaryFile??=findWasmBinary();var result=await instantiateAsync(wasmBinary,wasmBinaryFile,info);var exports=receiveInstantiationResult(result);return exports}class ExitStatus{name="ExitStatus";constructor(status){this.message=`Program terminated with exit(${status})`;this.status=status}}var callRuntimeCallbacks=callbacks=>{while(callbacks.length>0){callbacks.shift()(Module)}};var onPostRuns=[];var addOnPostRun=cb=>onPostRuns.push(cb);var onPreRuns=[];var addOnPreRun=cb=>onPreRuns.push(cb);var noExitRuntime=true;var abortOnCannotGrowMemory=requestedSize=>{abort("OOM")};var _emscripten_resize_heap=requestedSize=>{var oldSize=HEAPU8.length;requestedSize>>>=0;abortOnCannotGrowMemory(requestedSize)};var runtimeKeepaliveCounter=0;var keepRuntimeAlive=()=>noExitRuntime||runtimeKeepaliveCounter>0;var _proc_exit=code=>{EXITSTATUS=code;if(!keepRuntimeAlive()){Module["onExit"]?.(code);ABORT=true}quit_(code,new ExitStatus(code))};var exitJS=(status,implicit)=>{EXITSTATUS=status;_proc_exit(status)};var _exit=exitJS;var printCharBuffers=[null,[],[]];var UTF8Decoder=globalThis.TextDecoder&&new TextDecoder;var findStringEnd=(heapOrArray,idx,maxBytesToRead,ignoreNul)=>{var maxIdx=idx+maxBytesToRead;if(ignoreNul)return maxIdx;while(heapOrArray[idx]&&!(idx>=maxIdx))++idx;return idx};var UTF8ArrayToString=(heapOrArray,idx=0,maxBytesToRead,ignoreNul)=>{var endPtr=findStringEnd(heapOrArray,idx,maxBytesToRead,ignoreNul);if(endPtr-idx>16&&heapOrArray.buffer&&UTF8Decoder){return UTF8Decoder.decode(heapOrArray.subarray(idx,endPtr))}var str="";while(idx<endPtr){var u0=heapOrArray[idx++];if(!(u0&128)){str+=String.fromCharCode(u0);continue}var u1=heapOrArray[idx++]&63;if((u0&224)==192){str+=String.fromCharCode((u0&31)<<6|u1);continue}var u2=heapOrArray[idx++]&63;if((u0&240)==224){u0=(u0&15)<<12|u1<<6|u2}else{u0=(u0&7)<<18|u1<<12|u2<<6|heapOrArray[idx++]&63}if(u0<65536){str+=String.fromCharCode(u0)}else{var ch=u0-65536;str+=String.fromCharCode(55296|ch>>10,56320|ch&1023)}}return str};var printChar=(stream,curr)=>{var buffer=printCharBuffers[stream];if(curr===0||curr===10){(stream===1?out:err)(UTF8ArrayToString(buffer));buffer.length=0}else{buffer.push(curr)}};var _fd_write=(fd,iov,iovcnt,pnum)=>{var num=0;for(var i=0;i<iovcnt;i++){var ptr=HEAPU32[iov>>2];var len=HEAPU32[iov+4>>2];iov+=8;for(var j=0;j<len;j++){printChar(fd,HEAPU8[ptr+j])}num+=len}HEAPU32[pnum>>2]=num;return 0};{if(Module["noExitRuntime"])noExitRuntime=Module["noExitRuntime"];if(Module["print"])out=Module["print"];if(Module["printErr"])err=Module["printErr"];if(Module["wasmBinary"])wasmBinary=Module["wasmBinary"];if(Module["arguments"])arguments_=Module["arguments"];if(Module["thisProgram"])thisProgram=Module["thisProgram"];if(Module["preInit"]){if(typeof Module["preInit"]=="function")Module["preInit"]=[Module["preInit"]];while(Module["preInit"].length>0){Module["preInit"].shift()()}}}var _malloc,_free,_BZ2_bzDecompressInit,_BZ2_bzDecompress,_BZ2_bzDecompressEnd,_createStream,_setNextIn,_getNextIn,_setAvailIn,_getAvailIn,_setNextOut,_getNextOut,_setAvailOut,_getAvailOut,memory,__indirect_function_table,wasmMemory;function assignWasmExports(wasmExports){_malloc=Module["_malloc"]=wasmExports["f"];_free=Module["_free"]=wasmExports["g"];_BZ2_bzDecompressInit=Module["_BZ2_bzDecompressInit"]=wasmExports["h"];_BZ2_bzDecompress=Module["_BZ2_bzDecompress"]=wasmExports["i"];_BZ2_bzDecompressEnd=Module["_BZ2_bzDecompressEnd"]=wasmExports["j"];_createStream=Module["_createStream"]=wasmExports["k"];_setNextIn=Module["_setNextIn"]=wasmExports["l"];_getNextIn=Module["_getNextIn"]=wasmExports["m"];_setAvailIn=Module["_setAvailIn"]=wasmExports["n"];_getAvailIn=Module["_getAvailIn"]=wasmExports["o"];_setNextOut=Module["_setNextOut"]=wasmExports["p"];_getNextOut=Module["_getNextOut"]=wasmExports["q"];_setAvailOut=Module["_setAvailOut"]=wasmExports["r"];_getAvailOut=Module["_getAvailOut"]=wasmExports["s"];memory=wasmMemory=wasmExports["d"];__indirect_function_table=wasmExports["__indirect_function_table"]}var wasmImports={b:_emscripten_resize_heap,c:_exit,a:_fd_write};function run(){preRun();function doRun(){Module["calledRun"]=true;if(ABORT)return;initRuntime();readyPromiseResolve?.(Module);Module["onRuntimeInitialized"]?.();postRun()}if(Module["setStatus"]){Module["setStatus"]("Running...");setTimeout(()=>{setTimeout(()=>Module["setStatus"](""),1);doRun()},1)}else{doRun()}}var wasmExports;wasmExports=await (createWasm());run();if(runtimeInitialized){moduleRtn=Module}else{moduleRtn=new Promise((resolve,reject)=>{readyPromiseResolve=resolve;readyPromiseReject=reject})}
+;return moduleRtn}/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (Module);
+
+
+/***/ },
+
+/***/ "./bzip2.wasm"
+/*!********************!*\
+  !*** ./bzip2.wasm ***!
+  \********************/
+(module, __unused_webpack_exports, __webpack_require__) {
+
+"use strict";
+module.exports = __webpack_require__.p + "53dc54acfe462e39ac6c.wasm";
 
 /***/ },
 
@@ -18557,150 +17689,159 @@ module.exports = /*#__PURE__*/JSON.parse('{"name":"seek-bzip","version":"2.0.0",
 /*!***********************!*\
   !*** ./datareader.js ***!
   \***********************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
+__webpack_require__.a(module, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   DataReader: () => (/* binding */ DataReader)
+/* harmony export */   BzipDataReader: () => (/* binding */ BzipDataReader)
 /* harmony export */ });
+/* harmony import */ var buffer__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! buffer */ "../node_modules/buffer/index.js");
+/* harmony import */ var _bzip2__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./bzip2 */ "./bzip2.js");
 
-class DataReader {
 
-	constructor(buffer) {
-		this.buffer = buffer;
-		this.position = 0;
+
+const {
+	_BZ2_bzDecompressInit, _BZ2_bzDecompress, _BZ2_bzDecompressEnd,
+	_createStream, _setNextIn, _setAvailIn, _setNextOut, _getNextOut, _setAvailOut, _getAvailOut,
+	_malloc, _free, HEAPU8
+} = await (0,_bzip2__WEBPACK_IMPORTED_MODULE_1__["default"])();
+
+const OUT_SIZE = 1 << 20;
+const BZ_OK = 0;
+const BZ_STREAM_END = 4;
+
+class BzipDataReader {
+
+	constructor(src) {
+		this.bz_stream = _createStream();
+		_BZ2_bzDecompressInit(this.bz_stream, 0, 0);
+
+		this.inputPointer = _malloc(src.byteLength);
+		_setNextIn(this.bz_stream, this.inputPointer);
+		_setAvailIn(this.bz_stream, src.byteLength);
+		this.outputPointer = _malloc(OUT_SIZE);
+		_setNextOut(this.bz_stream, this.outputPointer);
+		_setAvailOut(this.bz_stream, OUT_SIZE);
+
+		HEAPU8.set(src, this.inputPointer);
+		this.buffer = buffer__WEBPACK_IMPORTED_MODULE_0__.Buffer.from(HEAPU8.buffer, this.outputPointer, OUT_SIZE);
+		this.readPos = 0;
+	}
+
+	getWritePos() {
+		return _getNextOut(this.bz_stream) - this.outputPointer;
+	}
+
+	setWritePos(writePos) {
+		_setNextOut(this.bz_stream, this.outputPointer + writePos);
+		_setAvailOut(this.bz_stream, OUT_SIZE - writePos);
+	}
+
+	availableWrite() {
+		return _getAvailOut(this.bz_stream);
+	}
+
+	getReadPos() {
+		return this.readPos;
+	}
+
+	setReadPos(readPos) {
+		this.readPos = readPos;
+	}
+
+	availableRead() {
+		return this.getWritePos() - this.getReadPos();
+	}
+
+	ensure(bytes) {
+		if (this.availableRead() < bytes) {
+			this.buffer.copyWithin(0, this.getReadPos(), this.getWritePos());
+			this.setWritePos(this.getWritePos() - this.getReadPos());
+			this.setReadPos(0);
+
+			while (this.availableRead() < bytes) {
+				const r = _BZ2_bzDecompress(this.bz_stream);
+				if (r === BZ_STREAM_END) {
+					if (this.availableRead() < bytes) {
+						throw new Error("EOF: Can't read " + bytes + " bytes, available: " + this.availableRead());
+					}
+					break;
+				}
+				if (r !== BZ_OK) {
+					throw new Error("Unexpected bzip decompress result: " + r);
+				}
+			}
+		}
 	}
 
 	readByte() {
-		const result = this.buffer.readInt8(this.position);
-		this.position += 1;
+		this.ensure(1);
+		const result = this.buffer.readInt8(this.readPos);
+		this.readPos += 1;
 		return result;
 	}
 
 	readShort() {
-		const result = this.buffer.readInt16BE(this.position);
-		this.position += 2;
+		this.ensure(2);
+		const result = this.buffer.readInt16BE(this.readPos);
+		this.readPos += 2;
 		return result;
 	}
 
 	readInt() {
-		const result = this.buffer.readInt32BE(this.position);
-		this.position += 4;
+		this.ensure(4);
+		const result = this.buffer.readInt32BE(this.readPos);
+		this.readPos += 4;
 		return result;
 	}
 
 	readLong() {
-		const result = Number(this.buffer.readBigInt64BE(this.position));
-		this.position += 8;
+		this.ensure(8);
+		const result = Number(this.buffer.readBigInt64BE(this.readPos));
+		this.readPos += 8;
 		return result;
 	}
 
 	readUTF() {
 		const length = this.readShort();
-		const result = this.buffer.toString("utf8", this.position, this.position + length);
-		this.position += length;
+		this.ensure(length);
+		const result = this.buffer.toString("utf8", this.readPos, this.readPos + length);
+		this.readPos += length;
 		return result;
+	}
+
+	close() {
+		_BZ2_bzDecompressEnd(this.bz_stream);
+		_free(this.bz_stream);
+		_free(this.inputPointer);
+		_free(this.outputPointer);
 	}
 
 }
 
+__webpack_async_result__();
+} catch(e) { __webpack_async_result__(e); } }, 1);
 
-/***/ }
+/***/ },
 
-/******/ 	});
-/************************************************************************/
-/******/ 	// The module cache
-/******/ 	var __webpack_module_cache__ = {};
-/******/ 	
-/******/ 	// The require function
-/******/ 	function __webpack_require__(moduleId) {
-/******/ 		// Check if module is in cache
-/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
-/******/ 		if (cachedModule !== undefined) {
-/******/ 			return cachedModule.exports;
-/******/ 		}
-/******/ 		// Check if module exists (development only)
-/******/ 		if (__webpack_modules__[moduleId] === undefined) {
-/******/ 			var e = new Error("Cannot find module '" + moduleId + "'");
-/******/ 			e.code = 'MODULE_NOT_FOUND';
-/******/ 			throw e;
-/******/ 		}
-/******/ 		// Create a new module (and put it into the cache)
-/******/ 		var module = __webpack_module_cache__[moduleId] = {
-/******/ 			// no module.id needed
-/******/ 			// no module.loaded needed
-/******/ 			exports: {}
-/******/ 		};
-/******/ 	
-/******/ 		// Execute the module function
-/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
-/******/ 	
-/******/ 		// Return the exports of the module
-/******/ 		return module.exports;
-/******/ 	}
-/******/ 	
-/************************************************************************/
-/******/ 	/* webpack/runtime/compat get default export */
-/******/ 	(() => {
-/******/ 		// getDefaultExport function for compatibility with non-harmony modules
-/******/ 		__webpack_require__.n = (module) => {
-/******/ 			var getter = module && module.__esModule ?
-/******/ 				() => (module['default']) :
-/******/ 				() => (module);
-/******/ 			__webpack_require__.d(getter, { a: getter });
-/******/ 			return getter;
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/define property getters */
-/******/ 	(() => {
-/******/ 		// define getter functions for harmony exports
-/******/ 		__webpack_require__.d = (exports, definition) => {
-/******/ 			for(var key in definition) {
-/******/ 				if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
-/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
-/******/ 				}
-/******/ 			}
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
-/******/ 	(() => {
-/******/ 		__webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/make namespace object */
-/******/ 	(() => {
-/******/ 		// define __esModule on exports
-/******/ 		__webpack_require__.r = (exports) => {
-/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
-/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
-/******/ 			}
-/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/************************************************************************/
-var __webpack_exports__ = {};
-// This entry needs to be wrapped in an IIFE because it needs to be in strict mode.
-(() => {
-"use strict";
+/***/ "./index.js"
 /*!******************!*\
   !*** ./index.js ***!
   \******************/
+(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.a(module, async (__webpack_handle_async_dependencies__, __webpack_async_result__) => { try {
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var chart_js_auto__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! chart.js/auto */ "../node_modules/chart.js/auto/auto.js");
 /* harmony import */ var _datareader__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./datareader */ "./datareader.js");
-/* harmony import */ var buffer__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! buffer */ "../node_modules/buffer/index.js");
-/* harmony import */ var seek_bzip__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! seek-bzip */ "../node_modules/seek-bzip/lib/index.js");
-/* harmony import */ var seek_bzip__WEBPACK_IMPORTED_MODULE_3___default = /*#__PURE__*/__webpack_require__.n(seek_bzip__WEBPACK_IMPORTED_MODULE_3__);
+var __webpack_async_dependencies__ = __webpack_handle_async_dependencies__([_datareader__WEBPACK_IMPORTED_MODULE_1__]);
+var __webpack_async_dependencies_result__ = (__webpack_async_dependencies__.then ? (await __webpack_async_dependencies__)() : __webpack_async_dependencies__);
+_datareader__WEBPACK_IMPORTED_MODULE_1__ = __webpack_async_dependencies_result__[0];
 
 
-
-
-
-window.Buffer = buffer__WEBPACK_IMPORTED_MODULE_2__.Buffer;
 
 const file_input = document.getElementById("file_input");
 file_input.onchange = _ => {
@@ -18729,108 +17870,125 @@ async function load(files) {
 	document.getElementById("main").replaceChildren(createElement("span", null, loading => loading.innerHTML = "Loading..."));
 
 	// Load profiler data from file
-	const profilerData = await files.item(0).arrayBuffer()
-		.then(response => new Uint8Array(response))
-		.then(response => seek_bzip__WEBPACK_IMPORTED_MODULE_3___default().decode(response))
-		.then(buffer => new _datareader__WEBPACK_IMPORTED_MODULE_1__.DataReader(buffer))
-		.then(dataReader => {
-			function readProfilerResultEntry(dataReader, parent = null) {
-				const name = dataReader.readUTF();
-				const time = dataReader.readLong();
-				const result = {
-					name: name,
-					time: time,
-					self_time: time,
-					parent: parent,
-					children: []
-				};
+	let profilerData;
+	let mergedProfilerData;
+	let aggregatedProfilerData;
+	try {
+		profilerData = await files.item(0).arrayBuffer()
+			.then(response => new Uint8Array(response))
+			.then(buffer => new _datareader__WEBPACK_IMPORTED_MODULE_1__.BzipDataReader(buffer))
+			.then(dataReader => {
+				function readProfilerResultEntry(dataReader, parent = null) {
+					const name = dataReader.readUTF();
+					const time = dataReader.readLong();
+					const result = {
+						name: name,
+						time: time,
+						self_time: time,
+						parent: parent,
+						children: []
+					};
 
-				const children = dataReader.readInt();
-				for (let i = 0; i < children; i++) {
-					result.children[i] = readProfilerResultEntry(dataReader, result);
-					result.self_time -= result.children[i].time;
+					const children = dataReader.readInt();
+					for (let i = 0; i < children; i++) {
+						result.children[i] = readProfilerResultEntry(dataReader, result);
+						result.self_time -= result.children[i].time;
+					}
+
+					return result;
 				}
 
-				return result;
-			}
-
-			return Array.from({ length: dataReader.readInt() }, _ => readProfilerResultEntry(dataReader));
-		});
-	const mergedProfilerData = profilerData.map(entry => merge(entry));
-	const aggregatedProfilerData = mergedProfilerData.reduce((mergedEntry, entry) => merge(entry, mergedEntry), null);
+				try {
+					return Array.from({ length: dataReader.readInt() }, _ => readProfilerResultEntry(dataReader));
+				} finally {
+					dataReader.close();
+				}
+			});
+		mergedProfilerData = profilerData.map(entry => merge(entry));
+		aggregatedProfilerData = mergedProfilerData.reduce((mergedEntry, entry) => merge(entry, mergedEntry), null);
+	} catch (e) {
+		console.error(e);
+		document.getElementById("main").replaceChildren(createElement("span", null, loading => loading.innerHTML = "Failed reading profiler result file: " + e));
+		return;
+	}
 
 	// Create HTML elements using profiler data
 	let chart;
-	document.getElementById("main").replaceChildren(
-		createElement("div", "merge-view", container => {
-			container.appendChild(createElement("h1", null, head => {
-				head.innerHTML = "Merge View";
-			}));
+	try {
+		document.getElementById("main").replaceChildren(
+			createElement("div", "merge-view", container => {
+				container.appendChild(createElement("h1", null, head => {
+					head.innerHTML = "Merge View";
+				}));
 
-			container.appendChild(createRootNode(aggregatedProfilerData, "merge-view", entry => {
-				let path = [];
-				let e = entry;
-				while (e) {
-					path.push(e.name);
-					e = e.parent;
-				}
-				path = path.reverse();
+				container.appendChild(createRootNode(aggregatedProfilerData, "merge-view", entry => {
+					let path = [];
+					let e = entry;
+					while (e) {
+						path.push(e.name);
+						e = e.parent;
+					}
+					path = path.reverse();
 
-				chart.data.datasets.at(0).data = mergedProfilerData.map((value, index) => {
-					return {
-						x: index.toString(),
-						y: path.slice(1).reduce((e, name) => e?.children[name], value)?.time ?? 0
-					};
-				});
-				chart.update();
-			}));
+					chart.data.datasets.at(0).data = mergedProfilerData.map((value, index) => {
+						return path.slice(1).reduce((e, name) => e?.children[name], value)?.time ?? 0;
+					});
+					chart.update();
+				}));
 
-			return container;
-		}),
-		document.createElement("hr"),
-		createElement("div", "graph", container => {
-			container.appendChild(createElement("h1", null, head => {
-				head.innerHTML = "Graph View";
-			}));
+				return container;
+			}),
+			document.createElement("hr"),
+			createElement("div", "graph", container => {
+				container.appendChild(createElement("h1", null, head => {
+					head.innerHTML = "Graph View";
+				}));
 
-			container.appendChild(createElement("canvas", null, canvas => {
-				chart = new chart_js_auto__WEBPACK_IMPORTED_MODULE_0__.Chart(canvas, {
-					type: "bar",
-					data: {
-						datasets: [{
-							barPercentage: 1.0,
-							categoryPercentage: 1.0
-						}]
-					},
-					options: {
-						animation: false,
-						onClick: (_, elements) => {
-							if (elements.length > 0) {
-								let oldElement = document.getElementById("frame-view");
-								let newElement = createRootNode(profilerData[elements[0].index], "frame-view");
-								oldElement.parentNode.replaceChild(newElement, oldElement);
+				container.appendChild(createElement("canvas", null, canvas => {
+					chart = new chart_js_auto__WEBPACK_IMPORTED_MODULE_0__.Chart(canvas, {
+						type: "bar",
+						data: {
+							labels: mergedProfilerData.map((_, index) => index.toString()),
+							datasets: [{
+								data: mergedProfilerData.map(value => value.time),
+								barPercentage: 1.0,
+								categoryPercentage: 1.0
+							}]
+						},
+						options: {
+							animation: false,
+							onClick: (_, elements) => {
+								if (elements.length > 0) {
+									let oldElement = document.getElementById("frame-view");
+									let newElement = createRootNode(profilerData[elements[0].index], "frame-view");
+									oldElement.parentNode.replaceChild(newElement, oldElement);
+								}
 							}
 						}
-					}
-				});
-			}));
+					});
+				}));
 
-			return container;
-		}),
-		document.createElement("hr"),
-		createElement("div", "frame-view", container => {
-			container.appendChild(createElement("h1", null, head => {
-				head.innerHTML = "Frame View";
-			}));
+				return container;
+			}),
+			document.createElement("hr"),
+			createElement("div", "frame-view", container => {
+				container.appendChild(createElement("h1", null, head => {
+					head.innerHTML = "Frame View";
+				}));
 
-			container.appendChild(createElement("span", null, tooltip => {
-				tooltip.id = "frame-view";
-				tooltip.innerHTML = "Click in graph view";
-			}));
+				container.appendChild(createElement("span", null, tooltip => {
+					tooltip.id = "frame-view";
+					tooltip.innerHTML = "Click in graph view";
+				}));
 
-			return container;
-		})
-	);
+				return container;
+			})
+		);
+	} catch (e) {
+		console.error(e);
+		document.getElementById("main").replaceChildren(createElement("span", null, loading => loading.innerHTML = "Failed creating html elements for profiler result: " + e));
+		return;
+	}
 }
 
 function merge(entry, mergedEntry = null, parent = null) {
@@ -18928,8 +18086,219 @@ function createElement(name, className = null, callback = null) {
 	return element;
 }
 
-})();
+__webpack_async_result__();
+} catch(e) { __webpack_async_result__(e); } });
 
+/***/ }
+
+/******/ 	});
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/ 	
+/******/ 	// The require function
+/******/ 	function __webpack_require__(moduleId) {
+/******/ 		// Check if module is in cache
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
+/******/ 		// Check if module exists (development only)
+/******/ 		if (__webpack_modules__[moduleId] === undefined) {
+/******/ 			var e = new Error("Cannot find module '" + moduleId + "'");
+/******/ 			e.code = 'MODULE_NOT_FOUND';
+/******/ 			throw e;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
+/******/ 			exports: {}
+/******/ 		};
+/******/ 	
+/******/ 		// Execute the module function
+/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
+/******/ 	
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/ 	
+/******/ 	// expose the modules object (__webpack_modules__)
+/******/ 	__webpack_require__.m = __webpack_modules__;
+/******/ 	
+/************************************************************************/
+/******/ 	/* webpack/runtime/async module */
+/******/ 	(() => {
+/******/ 		var hasSymbol = typeof Symbol === "function";
+/******/ 		var webpackQueues = hasSymbol ? Symbol("webpack queues") : "__webpack_queues__";
+/******/ 		var webpackExports = hasSymbol ? Symbol("webpack exports") : "__webpack_exports__";
+/******/ 		var webpackError = hasSymbol ? Symbol("webpack error") : "__webpack_error__";
+/******/ 		
+/******/ 		var resolveQueue = (queue) => {
+/******/ 			if(queue && queue.d < 1) {
+/******/ 				queue.d = 1;
+/******/ 				queue.forEach((fn) => (fn.r--));
+/******/ 				queue.forEach((fn) => (fn.r-- ? fn.r++ : fn()));
+/******/ 			}
+/******/ 		}
+/******/ 		var wrapDeps = (deps) => (deps.map((dep) => {
+/******/ 			if(dep !== null && typeof dep === "object") {
+/******/ 		
+/******/ 				if(dep[webpackQueues]) return dep;
+/******/ 				if(dep.then) {
+/******/ 					var queue = [];
+/******/ 					queue.d = 0;
+/******/ 					dep.then((r) => {
+/******/ 						obj[webpackExports] = r;
+/******/ 						resolveQueue(queue);
+/******/ 					}, (e) => {
+/******/ 						obj[webpackError] = e;
+/******/ 						resolveQueue(queue);
+/******/ 					});
+/******/ 					var obj = {};
+/******/ 		
+/******/ 					obj[webpackQueues] = (fn) => (fn(queue));
+/******/ 					return obj;
+/******/ 				}
+/******/ 			}
+/******/ 			var ret = {};
+/******/ 			ret[webpackQueues] = x => {};
+/******/ 			ret[webpackExports] = dep;
+/******/ 			return ret;
+/******/ 		}));
+/******/ 		__webpack_require__.a = (module, body, hasAwait) => {
+/******/ 			var queue;
+/******/ 			hasAwait && ((queue = []).d = -1);
+/******/ 			var depQueues = new Set();
+/******/ 			var exports = module.exports;
+/******/ 			var currentDeps;
+/******/ 			var outerResolve;
+/******/ 			var reject;
+/******/ 			var promise = new Promise((resolve, rej) => {
+/******/ 				reject = rej;
+/******/ 				outerResolve = resolve;
+/******/ 			});
+/******/ 			promise[webpackExports] = exports;
+/******/ 			promise[webpackQueues] = (fn) => (queue && fn(queue), depQueues.forEach(fn), promise["catch"](x => {}));
+/******/ 			module.exports = promise;
+/******/ 			var handle = (deps) => {
+/******/ 				currentDeps = wrapDeps(deps);
+/******/ 				var fn;
+/******/ 				var getResult = () => (currentDeps.map((d) => {
+/******/ 		
+/******/ 					if(d[webpackError]) throw d[webpackError];
+/******/ 					return d[webpackExports];
+/******/ 				}))
+/******/ 				var promise = new Promise((resolve) => {
+/******/ 					fn = () => (resolve(getResult));
+/******/ 					fn.r = 0;
+/******/ 					var fnQueue = (q) => (q !== queue && !depQueues.has(q) && (depQueues.add(q), q && !q.d && (fn.r++, q.push(fn))));
+/******/ 					currentDeps.map((dep) => (dep[webpackQueues](fnQueue)));
+/******/ 				});
+/******/ 				return fn.r ? promise : getResult();
+/******/ 			}
+/******/ 			var done = (err) => ((err ? reject(promise[webpackError] = err) : outerResolve(exports)), resolveQueue(queue))
+/******/ 			body(handle, done);
+/******/ 			queue && queue.d < 0 && (queue.d = 0);
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/define property getters */
+/******/ 	(() => {
+/******/ 		// define getter functions for harmony exports
+/******/ 		__webpack_require__.d = (exports, definition) => {
+/******/ 			for(var key in definition) {
+/******/ 				if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
+/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 				}
+/******/ 			}
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/global */
+/******/ 	(() => {
+/******/ 		__webpack_require__.g = (function() {
+/******/ 			if (typeof globalThis === 'object') return globalThis;
+/******/ 			try {
+/******/ 				return this || new Function('return this')();
+/******/ 			} catch (e) {
+/******/ 				if (typeof window === 'object') return window;
+/******/ 			}
+/******/ 		})();
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
+/******/ 	(() => {
+/******/ 		__webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/make namespace object */
+/******/ 	(() => {
+/******/ 		// define __esModule on exports
+/******/ 		__webpack_require__.r = (exports) => {
+/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
+/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
+/******/ 			}
+/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/publicPath */
+/******/ 	(() => {
+/******/ 		var scriptUrl;
+/******/ 		if (__webpack_require__.g.importScripts) scriptUrl = __webpack_require__.g.location + "";
+/******/ 		var document = __webpack_require__.g.document;
+/******/ 		if (!scriptUrl && document) {
+/******/ 			if (document.currentScript && document.currentScript.tagName.toUpperCase() === 'SCRIPT')
+/******/ 				scriptUrl = document.currentScript.src;
+/******/ 			if (!scriptUrl) {
+/******/ 				var scripts = document.getElementsByTagName("script");
+/******/ 				if(scripts.length) {
+/******/ 					var i = scripts.length - 1;
+/******/ 					while (i > -1 && (!scriptUrl || !/^http(s?):/.test(scriptUrl))) scriptUrl = scripts[i--].src;
+/******/ 				}
+/******/ 			}
+/******/ 		}
+/******/ 		// When supporting browsers where an automatic publicPath is not supported you must specify an output.publicPath manually via configuration
+/******/ 		// or pass an empty string ("") and set the __webpack_public_path__ variable from your code to use your own logic.
+/******/ 		if (!scriptUrl) throw new Error("Automatic publicPath is not supported in this browser");
+/******/ 		scriptUrl = scriptUrl.replace(/^blob:/, "").replace(/#.*$/, "").replace(/\?.*$/, "").replace(/\/[^\/]+$/, "/");
+/******/ 		__webpack_require__.p = scriptUrl;
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/jsonp chunk loading */
+/******/ 	(() => {
+/******/ 		__webpack_require__.b = (typeof document !== 'undefined' && document.baseURI) || self.location.href;
+/******/ 		
+/******/ 		// object to store loaded and loading chunks
+/******/ 		// undefined = chunk not loaded, null = chunk preloaded/prefetched
+/******/ 		// [resolve, reject, Promise] = chunk loading, 0 = chunk loaded
+/******/ 		var installedChunks = {
+/******/ 			"index": 0
+/******/ 		};
+/******/ 		
+/******/ 		// no chunk on demand loading
+/******/ 		
+/******/ 		// no prefetching
+/******/ 		
+/******/ 		// no preloaded
+/******/ 		
+/******/ 		// no HMR
+/******/ 		
+/******/ 		// no HMR manifest
+/******/ 		
+/******/ 		// no on chunks loaded
+/******/ 		
+/******/ 		// no jsonp function
+/******/ 	})();
+/******/ 	
+/************************************************************************/
+/******/ 	
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module used 'module' so it can't be inlined
+/******/ 	var __webpack_exports__ = __webpack_require__("./index.js");
+/******/ 	
 /******/ })()
 ;
 //# sourceMappingURL=index.js.map
