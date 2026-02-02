@@ -98,6 +98,7 @@ async function load(files) {
 					data: {
 						labels: mergedProfilerData.map((_, index) => index.toString()),
 						datasets: [{
+							data: mergedProfilerData.map(value => value.time),
 							barPercentage: 1.0,
 							categoryPercentage: 1.0
 						}]
