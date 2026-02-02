@@ -79,10 +79,7 @@ async function load(files) {
 				path = path.reverse();
 
 				chart.data.datasets.at(0).data = mergedProfilerData.map((value, index) => {
-					return {
-						x: index.toString(),
-						y: path.slice(1).reduce((e, name) => e?.children[name], value)?.time ?? 0
-					};
+					return path.slice(1).reduce((e, name) => e?.children[name], value)?.time ?? 0;
 				});
 				chart.update();
 			}));
@@ -99,6 +96,7 @@ async function load(files) {
 				chart = new Chart(canvas, {
 					type: "bar",
 					data: {
+						labels: mergedProfilerData.map((_, index) => index.toString()),
 						datasets: [{
 							barPercentage: 1.0,
 							categoryPercentage: 1.0
