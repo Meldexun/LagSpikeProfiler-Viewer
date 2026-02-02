@@ -1,9 +1,5 @@
 import { Chart } from 'chart.js/auto';
-import { DataReader } from './datareader'
-import { Buffer } from 'buffer';
-import bzip from 'seek-bzip';
-
-window.Buffer = Buffer;
+import { BzipDataReader } from './datareader';
 
 const file_input = document.getElementById("file_input");
 file_input.onchange = _ => {
@@ -34,8 +30,7 @@ async function load(files) {
 	// Load profiler data from file
 	const profilerData = await files.item(0).arrayBuffer()
 		.then(response => new Uint8Array(response))
-		.then(response => bzip.decode(response))
-		.then(buffer => new DataReader(buffer))
+		.then(buffer => new BzipDataReader(buffer))
 		.then(dataReader => {
 			function readProfilerResultEntry(dataReader, parent = null) {
 				const name = dataReader.readUTF();
@@ -57,7 +52,11 @@ async function load(files) {
 				return result;
 			}
 
-			return Array.from({ length: dataReader.readInt() }, _ => readProfilerResultEntry(dataReader));
+			try {
+				return Array.from({ length: dataReader.readInt() }, _ => readProfilerResultEntry(dataReader));
+			} finally {
+				dataReader.close();
+			}
 		});
 	const mergedProfilerData = profilerData.map(entry => merge(entry));
 	const aggregatedProfilerData = mergedProfilerData.reduce((mergedEntry, entry) => merge(entry, mergedEntry), null);

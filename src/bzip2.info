@@ -1,0 +1,63 @@
+bzip2.js and bzip2.wasm contains parts of libbzip2 together with some custom utility code compiled using emscripten.
+
+Clone bzip2 repository:
+git clone https://sourceware.org/git/bzip2.git
+
+Command used:
+emcc blocksort.c bzlib.c compress.c decompress.c huffman.c randtable.c crctable.c bz_stream_util.c ^
+    -O3 ^
+    -s MODULARIZE ^
+    -s EXPORT_ES6 ^
+    -s ENVIRONMENT=web ^
+    -s EXPORTED_FUNCTIONS="_BZ2_bzDecompressInit","_BZ2_bzDecompress","_BZ2_bzDecompressEnd","_malloc","_free","_createStream","_setNextIn","_getNextIn","_setAvailIn","_getAvailIn","_setNextOut","_getNextOut","_setAvailOut","_getAvailOut" ^
+    -s EXPORTED_RUNTIME_METHODS="HEAPU8" ^
+    -o bzip2.js
+
+code of bz_stream_util.c:
+#include <stdlib.h>
+#include "bzlib.h"
+
+bz_stream *createStream()
+{
+    return malloc(sizeof(bz_stream));
+}
+
+void setNextIn(bz_stream *strm, char *next_in)
+{
+    strm->next_in = next_in;
+}
+
+char *getNextIn(bz_stream *strm)
+{
+    return strm->next_in;
+}
+
+void setAvailIn(bz_stream *strm, unsigned int avail_in)
+{
+    strm->avail_in = avail_in;
+}
+
+unsigned int getAvailIn(bz_stream *strm)
+{
+    return strm->avail_in;
+}
+
+void setNextOut(bz_stream *strm, char *next_out)
+{
+    strm->next_out = next_out;
+}
+
+char *getNextOut(bz_stream *strm)
+{
+    return strm->next_out;
+}
+
+void setAvailOut(bz_stream *strm, unsigned int avail_out)
+{
+    strm->avail_out = avail_out;
+}
+
+unsigned int getAvailOut(bz_stream *strm)
+{
+    return strm->avail_out;
+}
