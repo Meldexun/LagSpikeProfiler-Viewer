@@ -17812,6 +17812,28 @@ class BzipDataReader {
 		return result;
 	}
 
+	readVarInt() {
+		let x = 0;
+		for (let i = 0; i < 5; i++) {
+			const b = this.readByte() & 0xFF;
+			x |= (b & ~(1 << 7)) << 7 * i;
+			if ((b & (1 << 7)) === 0)
+				break;
+		}
+		return x;
+	}
+
+	readVarLong() {
+		let x = 0;
+		for (let i = 0; i < 10; i++) {
+			const b = this.readByte() & 0xFF;
+			x |= (b & ~(1 << 7)) << 7 * i;
+			if ((b & (1 << 7)) === 0)
+				break;
+		}
+		return x;
+	}
+
 	close() {
 		_BZ2_bzDecompressEnd(this.bz_stream);
 		_free(this.bz_stream);
@@ -17878,9 +17900,9 @@ async function load(files) {
 			.then(response => new Uint8Array(response))
 			.then(buffer => new _datareader__WEBPACK_IMPORTED_MODULE_1__.BzipDataReader(buffer))
 			.then(dataReader => {
-				function readProfilerResultEntry(dataReader, parent = null) {
-					const name = dataReader.readUTF();
-					const time = dataReader.readLong();
+				function readProfilerResultEntry(dataReader, names, parent = null) {
+					const name = names[dataReader.readVarInt()];
+					const time = dataReader.readVarLong();
 					const result = {
 						name: name,
 						time: time,
@@ -17889,17 +17911,24 @@ async function load(files) {
 						children: []
 					};
 
-					const children = dataReader.readInt();
+					const children = dataReader.readVarInt();
 					for (let i = 0; i < children; i++) {
-						result.children[i] = readProfilerResultEntry(dataReader, result);
+						result.children[i] = readProfilerResultEntry(dataReader, names, result);
 						result.self_time -= result.children[i].time;
 					}
 
 					return result;
 				}
 
+				const version = dataReader.readUTF();
+				if (version !== "1.1.0") {
+					throw new Error("Can't read profiler result with version '" + version + "', expected 1.0.0")
+				}
+
+				const names = Array.from({ length: dataReader.readInt() }, _ => dataReader.readUTF());
+
 				try {
-					return Array.from({ length: dataReader.readInt() }, _ => readProfilerResultEntry(dataReader));
+					return Array.from({ length: dataReader.readInt() }, _ => readProfilerResultEntry(dataReader, names));
 				} finally {
 					dataReader.close();
 				}

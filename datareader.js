@@ -2529,6 +2529,28 @@ class BzipDataReader {
 		return result;
 	}
 
+	readVarInt() {
+		let x = 0;
+		for (let i = 0; i < 5; i++) {
+			const b = this.readByte() & 0xFF;
+			x |= (b & ~(1 << 7)) << 7 * i;
+			if ((b & (1 << 7)) === 0)
+				break;
+		}
+		return x;
+	}
+
+	readVarLong() {
+		let x = 0;
+		for (let i = 0; i < 10; i++) {
+			const b = this.readByte() & 0xFF;
+			x |= (b & ~(1 << 7)) << 7 * i;
+			if ((b & (1 << 7)) === 0)
+				break;
+		}
+		return x;
+	}
+
 	close() {
 		_BZ2_bzDecompressEnd(this.bz_stream);
 		_free(this.bz_stream);
